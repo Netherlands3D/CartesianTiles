@@ -239,7 +239,9 @@ namespace Netherlands3D.CartesianTiles
             container.SetActive(isEnabled);
 
             mesh = BinaryMeshConversion.ReadBinaryMesh(binaryMeshData, out int[] submeshIndices);
-
+            mesh.RecalculateBounds();
+            mesh.RecalculateNormals();
+            
 #if !UNITY_EDITOR && UNITY_WEBGL
 		    if(brotliCompressedExtention.Length>0 && source.EndsWith(brotliCompressedExtention))
 				source = source.Replace(brotliCompressedExtention,"");
