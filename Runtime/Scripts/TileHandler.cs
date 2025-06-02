@@ -65,8 +65,10 @@ namespace Netherlands3D.CartesianTiles
         /// <summary>
         /// list of tilechanges, ready to be processed
         /// </summary>
-        [HideInInspector]
-        public List<TileChange> pendingTileChanges = new List<TileChange>();
+        //[HideInInspector]
+        //public List<TileChange> pendingTileChanges = new List<TileChange>();
+
+        public Dictionary<string, List<TileChange>> pendingTileChanges = new Dictionary<string, List<TileChange>>();
 
         /// <summary>
         /// dictionary with tilechanges that are curently being processed
@@ -74,7 +76,7 @@ namespace Netherlands3D.CartesianTiles
         ///		X,Y is bottom-left coordinate of tile in RD (for example 121000,480000)
         ///		Z is the Layerindex of the tile
         /// </summary>
-        private Dictionary<Vector3Int, TileChange> activeTileChanges = new Dictionary<Vector3Int, TileChange>();
+        private Dictionary<string, Dictionary<Vector3Int, TileChange>> activeTileChanges = new Dictionary<string, Dictionary<Vector3Int, TileChange>>();
 
         /// <summary>
         /// area that is visible
@@ -159,6 +161,7 @@ namespace Netherlands3D.CartesianTiles
                     tileChange.Y = tileKey.y;
                     tileChange.layerIndex = layerIndex;
                     tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Remove);
+                    tileChange.sourceUrl = layer.Datasets[0].url; //or other?
                     AddTileChange(tileChange, layerIndex);
 
                 }
@@ -201,74 +204,85 @@ namespace Netherlands3D.CartesianTiles
             //Start with all remove changes to clear resources. We to all remove actions, and stop any running tilechanges that share the same position and layerindex
             InstantlyStartRemoveChanges();
 
-            if (activeTileChanges.Count < maximumConcurrentDownloads && pendingTileChanges.Count > 0)
+            foreach (KeyValuePair<string, List<TileChange>> kv in pendingTileChanges)
             {
-                TileChange highestPriorityTileChange = GetHighestPriorityTileChange();
-                Vector3Int tilekey = new Vector3Int(highestPriorityTileChange.X, highestPriorityTileChange.Y, highestPriorityTileChange.layerIndex);
-                
-                if (activeTileChanges.TryGetValue(tilekey, out TileChange existingTileChange))
+                if (activeTileChanges[kv.Key].Count < maximumConcurrentDownloads && pendingTileChanges[kv.Key].Count > 0)
                 {
-                    //Change running tile changes to more important ones
-                    Debug.Log("Upgrading existing");
-                    if (existingTileChange.priorityScore < highestPriorityTileChange.priorityScore)
+                    TileChange? highestPriorityTileChange = GetHighestPriorityTileChange(kv.Key);
+                    if (highestPriorityTileChange == null)
+                        continue;
+
+                    TileChange change = (TileChange)highestPriorityTileChange;
+                    Vector3Int tilekey = new Vector3Int(change.X, change.Y, change.layerIndex);
+
+                    if (activeTileChanges[kv.Key].TryGetValue(tilekey, out TileChange existingTileChange))
                     {
-                        activeTileChanges[tilekey] = highestPriorityTileChange;
-                        pendingTileChanges.Remove(highestPriorityTileChange);
+                        //Change running tile changes to more important ones
+                        Debug.Log("Upgrading existing");
+                        if (existingTileChange.priorityScore < change.priorityScore)
+                        {
+                            activeTileChanges[kv.Key][tilekey] = change;
+                            pendingTileChanges[kv.Key].Remove(change);
+                        }
                     }
-                }
-                else
-                {
-                    activeTileChanges.Add(tilekey, highestPriorityTileChange);
-                    pendingTileChanges.Remove(highestPriorityTileChange);
-                    layers[highestPriorityTileChange.layerIndex].HandleTile(highestPriorityTileChange, TileHandled);
+                    else
+                    {
+                        activeTileChanges[kv.Key].Add(tilekey, change);
+                        pendingTileChanges[kv.Key].Remove(change);
+                        layers[change.layerIndex].HandleTile(change, TileHandled);
+                    }
                 }
             }
         }
 
         private void InstantlyStartRemoveChanges()
-        {            
-            for (int i = 0; i < pendingTileChanges.Count; i++)
+        {
+            foreach (KeyValuePair<string, List<TileChange>> kv in pendingTileChanges)
             {
-                if (pendingTileChanges[i].action == TileAction.Remove)
+                List<TileChange> changes = kv.Value;
+                for (int i = 0; i < changes.Count; i++)
                 {
-                    var removeChange = pendingTileChanges[i];
-                    layers[removeChange.layerIndex].HandleTile(removeChange);
-                    pendingTileChanges.RemoveAt(i);
+                    if (changes[i].action == TileAction.Remove)
+                    {
+                        var removeChange = changes[i];
+                        layers[removeChange.layerIndex].HandleTile(removeChange);
+                        changes.RemoveAt(i);
 
-                    //Abort all tilechanges with the same key
-                    AbortSimilarTileChanges(removeChange);
-                    AbortPendingSimilarTileChanges(removeChange);
+                        //Abort all tilechanges with the same key
+                        AbortSimilarTileChanges(removeChange);
+                        AbortPendingSimilarTileChanges(removeChange);
+                    }
                 }
             }
         }
 
         private void AbortSimilarTileChanges(TileChange removeChange)
         {
-            var changes = activeTileChanges.Where(change => ((change.Value.X == removeChange.X) && (change.Value.Y == removeChange.Y))).ToArray();
+            var changes = activeTileChanges[removeChange.sourceUrl].Where(change => ((change.Value.X == removeChange.X) && (change.Value.Y == removeChange.Y))).ToArray();
             for (int i = changes.Length - 1; i >= 0; i--)
             {
                 var runningChange = changes[i];
                 layers[removeChange.layerIndex].InteruptRunningProcesses(new Vector2Int(removeChange.X, removeChange.Y));
                 layers[removeChange.layerIndex].HandleTile(removeChange);
-                activeTileChanges.Remove(runningChange.Key);
+                activeTileChanges[removeChange.sourceUrl].Remove(runningChange.Key);
             }
         }
 
         private void AbortPendingSimilarTileChanges(TileChange removeChange)
         {
-            var changes = pendingTileChanges.Where(change => ((change.X == removeChange.X) && (change.Y == removeChange.Y))).ToArray();
+            var changes = pendingTileChanges[removeChange.sourceUrl].Where(change => ((change.X == removeChange.X) && (change.Y == removeChange.Y))).ToArray();
             for (int i = changes.Length - 1; i >= 0; i--)
             {
                 var runningChange = changes[i];
                 layers[removeChange.layerIndex].InteruptRunningProcesses(new Vector2Int(removeChange.X, removeChange.Y));
                 layers[removeChange.layerIndex].HandleTile(removeChange);
-                pendingTileChanges.Remove(runningChange);
+                pendingTileChanges[removeChange.sourceUrl].Remove(runningChange);
             }
         }
 
         public void TileHandled(TileChange handledTileChange)
         {
-            activeTileChanges.Remove(new Vector3Int(handledTileChange.X, handledTileChange.Y, handledTileChange.layerIndex));
+            activeTileChanges[handledTileChange.sourceUrl].Remove(new Vector3Int(handledTileChange.X, handledTileChange.Y, handledTileChange.layerIndex));
         }
 
         /// <summary>
@@ -417,9 +431,13 @@ namespace Netherlands3D.CartesianTiles
             Gizmos.color = Color.white;
             foreach (var tileList in tileDistances)
             {
-                foreach (var tile in tileList)
+                if (tileList != null)
                 {
-                    Gizmos.DrawWireCube(CoordinateConverter.RDtoUnity(new Vector3(tile.x + 500, tile.y + 500, 0)), new Vector3(1000, 100, 1000));
+                    foreach (var tile in tileList)
+                    {
+                        if (tile != null)
+                            Gizmos.DrawWireCube(CoordinateConverter.RDtoUnity(new Vector3(tile.x + 500, tile.y + 500, 0)), new Vector3(1000, 100, 1000));
+                    }
                 }
             }
         }
@@ -462,6 +480,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Remove);
+                            tileChange.sourceUrl = layer.Datasets[0].url;
                             AddTileChange(tileChange, layerIndex);
                         }
                         else if (activeLOD > LOD)
@@ -472,6 +491,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, activeLOD - 1, tileDistance.z, TileAction.Downgrade);
+                            tileChange.sourceUrl = layer.Datasets[0].url;
                             AddTileChange(tileChange, layerIndex);
                         }
                         else if (activeLOD < LOD)
@@ -482,6 +502,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, activeLOD + 1, tileDistance.z, TileAction.Upgrade);
+                            tileChange.sourceUrl = layer.Datasets[0].url;
                             AddTileChange(tileChange, layerIndex);
                         }
                     }
@@ -495,6 +516,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Create);
                             tileChange.layerIndex = layerIndex;
+                            tileChange.sourceUrl = layer.Datasets[0].url;
                             AddTileChange(tileChange, layerIndex);
                         }
                     }
@@ -504,16 +526,24 @@ namespace Netherlands3D.CartesianTiles
 
         private void AddTileChange(TileChange tileChange, int layerIndex)
         {
+            if (!activeTileChanges.ContainsKey(tileChange.sourceUrl))
+                activeTileChanges.Add(tileChange.sourceUrl, new Dictionary<Vector3Int, TileChange>());
+
             //don't add a tilechange if the tile has an active tilechange already
             Vector3Int activekey = new Vector3Int(tileChange.X, tileChange.Y, tileChange.layerIndex);
-            if (activeTileChanges.ContainsKey(activekey) && tileChange.action != TileAction.Remove)
+            if (activeTileChanges[tileChange.sourceUrl].ContainsKey(activekey) && tileChange.action != TileAction.Remove)
             {
                 return;
             }
+
+            if (!pendingTileChanges.ContainsKey(tileChange.sourceUrl))
+                pendingTileChanges.Add(tileChange.sourceUrl, new List<TileChange>());
+
             bool tileIspending = false;
-            for (int i = pendingTileChanges.Count - 1; i >= 0; i--)
+            List<TileChange> changes = pendingTileChanges[tileChange.sourceUrl];
+            for (int i = changes.Count - 1; i >= 0; i--)
             {
-                if (pendingTileChanges[i].X == tileChange.X && pendingTileChanges[i].Y == tileChange.Y && pendingTileChanges[i].layerIndex == tileChange.layerIndex)
+                if (changes[i].X == tileChange.X && changes[i].Y == tileChange.Y && changes[i].layerIndex == tileChange.layerIndex)
                 {
                     tileIspending = true;
                 }
@@ -522,7 +552,7 @@ namespace Netherlands3D.CartesianTiles
             //Replace running tile changes with this one if priority is higher
             if (tileIspending == false)
             {
-                pendingTileChanges.Add(tileChange);
+                changes.Add(tileChange);
             }
         }
 
@@ -598,7 +628,7 @@ namespace Netherlands3D.CartesianTiles
         private void RemoveOutOfViewTiles()
         {
             Layer layer = null;
-            
+
             for (int layerIndex = 0; layerIndex < layers.Count; layerIndex++)
             {
                 // create a list of tilekeys for the tiles that are within the viewrange
@@ -610,7 +640,7 @@ namespace Netherlands3D.CartesianTiles
 
                 if (layer.gameObject.activeSelf == false) continue;
                 if (layer.isEnabled == false) continue;
-                
+
                 int tilesizeIndex = tileSizes.IndexOf(layer.tileSize);
                 var neededTiles = tileDistances[tilesizeIndex];
 
@@ -629,7 +659,7 @@ namespace Netherlands3D.CartesianTiles
                     }
                     if (isneeded) continue;
 
-                    
+
                     // if the tile is not within the viewrange, set it up for removal
                     AddTileChange(
                         new TileChange
@@ -638,8 +668,9 @@ namespace Netherlands3D.CartesianTiles
                             X = kvp.Key.x,
                             Y = kvp.Key.y,
                             layerIndex = layerIndex,
-                            priorityScore = int.MaxValue // set the priorityscore to maximum
-                        }, 
+                            priorityScore = int.MaxValue, // set the priorityscore to maximum
+                            sourceUrl = kvp.Value.layer.Datasets[0].url
+                        },
                         layerIndex
                     );
                 }
@@ -647,17 +678,17 @@ namespace Netherlands3D.CartesianTiles
             }
         }
 
-        private TileChange GetHighestPriorityTileChange()
+        private TileChange? GetHighestPriorityTileChange(string sourceUrl)
         {
-            TileChange highestPriorityTileChange = pendingTileChanges[0];
-            float highestPriority = highestPriorityTileChange.priorityScore;
-
-            for (int i = 1; i < pendingTileChanges.Count; i++)
+            float highestPriority = float.MinValue;
+            TileChange? highestPriorityTileChange = null;
+            List<TileChange> changes = pendingTileChanges[sourceUrl];
+            for (int i = 0; i < changes.Count; i++)
             {
-                if (pendingTileChanges[i].priorityScore > highestPriority)
+                if (changes[i].priorityScore > highestPriority)
                 {
-                    highestPriorityTileChange = pendingTileChanges[i];
-                    highestPriority = highestPriorityTileChange.priorityScore;
+                    highestPriorityTileChange = changes[i];
+                    highestPriority = ((TileChange)highestPriorityTileChange).priorityScore;
                 }
             }
             return highestPriorityTileChange;

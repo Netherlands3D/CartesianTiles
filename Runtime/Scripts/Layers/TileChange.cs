@@ -14,6 +14,7 @@ namespace Netherlands3D.CartesianTiles
         public int layerIndex;
         public int X;
         public int Y;
+        public string sourceUrl;
 
         public bool Equals(TileChange other)
         {
