@@ -161,7 +161,7 @@ namespace Netherlands3D.CartesianTiles
                     tileChange.Y = tileKey.y;
                     tileChange.layerIndex = layerIndex;
                     tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Remove);
-                    tileChange.sourceUrl = layer.Datasets[0].url; //or other?
+                    tileChange.sourceUrl = layer.Datasets[0].host; //or other index?
                     AddTileChange(tileChange, layerIndex);
 
                 }
@@ -480,7 +480,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Remove);
-                            tileChange.sourceUrl = layer.Datasets[0].url;
+                            tileChange.sourceUrl = layer.Datasets[0].host;
                             AddTileChange(tileChange, layerIndex);
                         }
                         else if (activeLOD > LOD)
@@ -491,7 +491,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, activeLOD - 1, tileDistance.z, TileAction.Downgrade);
-                            tileChange.sourceUrl = layer.Datasets[0].url;
+                            tileChange.sourceUrl = layer.Datasets[0].host;
                             AddTileChange(tileChange, layerIndex);
                         }
                         else if (activeLOD < LOD)
@@ -502,7 +502,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.layerIndex = layerIndex;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, activeLOD + 1, tileDistance.z, TileAction.Upgrade);
-                            tileChange.sourceUrl = layer.Datasets[0].url;
+                            tileChange.sourceUrl = layer.Datasets[0].host;
                             AddTileChange(tileChange, layerIndex);
                         }
                     }
@@ -516,7 +516,7 @@ namespace Netherlands3D.CartesianTiles
                             tileChange.Y = tileKey.y;
                             tileChange.priorityScore = CalculatePriorityScore(layer.layerPriority, 0, tileDistance.z, TileAction.Create);
                             tileChange.layerIndex = layerIndex;
-                            tileChange.sourceUrl = layer.Datasets[0].url;
+                            tileChange.sourceUrl = layer.Datasets[0].host;
                             AddTileChange(tileChange, layerIndex);
                         }
                     }
@@ -669,7 +669,7 @@ namespace Netherlands3D.CartesianTiles
                             Y = kvp.Key.y,
                             layerIndex = layerIndex,
                             priorityScore = int.MaxValue, // set the priorityscore to maximum
-                            sourceUrl = kvp.Value.layer.Datasets[0].url
+                            sourceUrl = kvp.Value.layer.Datasets[0].host
                         },
                         layerIndex
                     );
