@@ -23,5 +23,13 @@ namespace Netherlands3D.CartesianTiles
                 return path + pathQuery;
             }
         }
+
+        public string host
+        {
+            get
+            {
+                return new Uri(path).Host;
+            }
+        }
     }
 }
